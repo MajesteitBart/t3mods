@@ -61,6 +61,8 @@ Each T3 update replaces `server.asar` and with it the mods. The scheduled task
   `launch.ps1` (patches, then starts T3) and logs to `restart-and-apply.log`.
   After an update this means T3 restarts a second time, shortly after the
   updater's own restart.
+- Only one `restart-and-apply.ps1` waits at a time. A second one, for example
+  one you start while the watcher's is waiting, logs that and exits.
 - A build that carries an older version of the mods is left alone, so editing
   a mod never restarts T3 by surprise. Run `restart-and-apply.ps1` yourself
   for that.
@@ -202,3 +204,8 @@ To try a DOM-only change before patching, run `node apply.mjs --print-bundle`
 and paste the output into the browser console of a T3 tab. `rpcAll`, Home and
 new windows need the patched page, because they depend on code that runs
 before T3 starts.
+
+## License
+
+MIT, see `LICENSE`. The Supertonic model and the code adapted from Supertone
+keep their own licenses, listed above.

@@ -21,6 +21,18 @@ function Write-Log([string]$Message) {
     "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $Message" | Add-Content -LiteralPath $log -Encoding utf8
 }
 
+# Runs a program and returns its output lines as text, stderr included unless
+# -StdoutOnly. Windows PowerShell turns redirected stderr into errors, and with
+# 'Stop' a single warning line (taskkill prints one per child it can't end)
+# would abort the script between closing T3 and starting it again.
+function Invoke-Native([string]$FilePath, [string[]]$Arguments, [string]$InputText, [switch]$StdoutOnly) {
+    $ErrorActionPreference = 'Continue'
+    $lines = if ($InputText) { $InputText | & $FilePath @Arguments 2>&1 } else { & $FilePath @Arguments 2>&1 }
+    foreach ($line in $lines) {
+        if (-not ($StdoutOnly -and $line -is [System.Management.Automation.ErrorRecord])) { "$line" }
+    }
+}
+
 function Get-T3Processes {
     @(Get-CimInstance Win32_Process | Where-Object {
         $_.ExecutablePath -and ((Split-Path -Parent $_.ExecutablePath) -ieq $installDir)
@@ -33,27 +45,36 @@ function Send-Report([string]$Text) {
         $until = (Get-Date).AddMinutes(3)
         while ((Get-Date) -lt $until) {
             try {
-                $doctor = (& t3code --json doctor 2>$null) -join "`n" | ConvertFrom-Json
+                $doctor = (Invoke-Native t3code @('--json', 'doctor') -StdoutOnly) -join "`n" | ConvertFrom-Json
                 if ($doctor.data.checks.t3Server.ok) { break }
             } catch { }
             Start-Sleep -Seconds 5
         }
-        $result = $Text | & t3code --json threads send --thread $ReportThreadId --stdin --if-busy queue --no-start-desktop 2>&1
-        Write-Log "Report: $(($result | Out-String).Trim() -replace '\s+', ' ')"
+        $result = Invoke-Native t3code @('--json', 'threads', 'send', '--thread', $ReportThreadId, '--stdin', '--if-busy', 'queue', '--no-start-desktop') $Text
+        $label = if ($LASTEXITCODE -eq 0) { 'Report' } else { "Report failed (exit $LASTEXITCODE)" }
+        Write-Log "${label}: $(($result -join ' ') -replace '\s+', ' ')"
     } catch {
         Write-Log "Report failed: $($_.Exception.Message)"
     }
 }
 
 $closedT3 = $false
+# One run at a time, so the watcher and a run you started never both close T3.
+$lock = New-Object System.Threading.Mutex($false, 'Local\T3ModsRestartAndApply')
+$locked = $false
 try {
+    try { $locked = $lock.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $locked = $true }
+    if (-not $locked) {
+        Write-Log 'Another restart-and-apply run is already waiting; leaving it to that one.'
+        return
+    }
     Write-Log "Started. Waiting for T3 runs to finish (max $MaxWaitMinutes min)."
     $deadline = (Get-Date).AddMinutes($MaxWaitMinutes)
     $quietChecks = 0
     while ($quietChecks -lt 3) {
         if ((Get-Date) -gt $deadline) { throw "T3 still had active runs after $MaxWaitMinutes minutes; left T3 running." }
         # A failed probe counts as busy: closing T3 mid-run is the worse mistake.
-        $probe = (& $node (Join-Path $PSScriptRoot 'active-runs.mjs') 2>$null | Out-String).Trim()
+        $probe = ((Invoke-Native $node @((Join-Path $PSScriptRoot 'active-runs.mjs')) -StdoutOnly) -join '').Trim()
         $active = 0
         $known = ($LASTEXITCODE -eq 0) -and [int]::TryParse($probe, [ref]$active)
         if ($known -and $active -eq 0) { $quietChecks++ } else { $quietChecks = 0 }
@@ -66,7 +87,10 @@ try {
     $ids = $processes.ProcessId
     foreach ($main in ($processes | Where-Object { $ids -notcontains $_.ParentProcessId })) {
         Write-Log "No active runs. Closing T3 (pid $($main.ProcessId))."
-        & taskkill.exe /PID $main.ProcessId /T /F | Out-Null
+        # A child that already exited makes taskkill print an error but the
+        # rest still closes; the wait below catches what doesn't.
+        Invoke-Native taskkill.exe @('/PID', "$($main.ProcessId)", '/T', '/F') |
+            Where-Object { $_ -and $_ -notmatch '^SUCCESS' } | ForEach-Object { Write-Log "taskkill: $_" }
         $closedT3 = $true
     }
     $until = (Get-Date).AddSeconds(60)
@@ -77,9 +101,12 @@ try {
     Start-Sleep -Seconds 2
 
     Write-Log 'Running launch.ps1 (patches, then starts T3).'
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher 2>&1 |
+    Invoke-Native powershell.exe @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $launcher) |
         ForEach-Object { Write-Log "launcher: $_" }
-    $check = (& $node (Join-Path $PSScriptRoot 'apply.mjs') --check 2>&1) -join ' '
+    # Its errors arrive as text, so the exit code is what sends a failed
+    # launch to the catch block, which starts T3 again.
+    if ($LASTEXITCODE -ne 0) { throw "launch.ps1 failed (exit $LASTEXITCODE)." }
+    $check = (Invoke-Native $node @((Join-Path $PSScriptRoot 'apply.mjs'), '--check')) -join ' '
     Write-Log "Mods: $check"
 
     Send-Report @"
@@ -97,6 +124,7 @@ Check that the mods show up in the running app, then report the result to the us
     }
     Send-Report "[restart-and-apply.ps1] Applying the T3 mods failed: $($_.Exception.Message) Log: $log. Look into it and report to the user."
 } finally {
+    if ($locked) { $lock.ReleaseMutex() }
     if ($TaskName) { Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue }
     Write-Log 'Done.'
 }

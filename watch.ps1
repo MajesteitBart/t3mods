@@ -62,6 +62,14 @@ function Write-Log([string]$Message) {
     "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $Message" | Add-Content -LiteralPath $log -Encoding utf8
 }
 
+# Runs a program and returns its stdout and stderr lines as text. Windows
+# PowerShell turns redirected stderr into errors, and with 'Stop' one warning
+# line would abort the check and kill the program mid-patch.
+function Invoke-Native([string]$FilePath, [string[]]$Arguments) {
+    $ErrorActionPreference = 'Continue'
+    foreach ($line in (& $FilePath @Arguments 2>&1)) { "$line" }
+}
+
 function Test-ProcessUnder([string]$Directory) {
     $prefix = $Directory.TrimEnd('\') + '\'
     @(Get-CimInstance Win32_Process -Property ExecutablePath | Where-Object {
@@ -76,7 +84,7 @@ function Get-ArchiveStamp {
 
 # Returns 'current', 'older' (patched with other mods), or 'missing'.
 function Get-ModsState {
-    $output = (& $node $apply --check 2>&1 | Out-String).Trim()
+    $output = ((Invoke-Native $node @($apply, '--check')) -join "`n").Trim()
     if ($LASTEXITCODE -eq 0) { return 'current' }
     if ($output -match ': not patched') { return 'missing' }
     if ($output -match 'patched with older mods') { return 'older' }
@@ -98,14 +106,18 @@ function Invoke-Check {
 
     if (-not (Test-ProcessUnder $installDir)) {
         Write-Log 'New build without mods, T3 closed: patching.'
-        $result = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher -PatchOnly 2>&1 | Out-String).Trim()
-        Write-Log "launcher -PatchOnly: $result"
+        $result = (Invoke-Native powershell.exe @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $launcher, '-PatchOnly')) -join ' '
+        Write-Log "launcher -PatchOnly: $($result.Trim())"
     } else {
-        Write-Log 'New build without mods, T3 running: restart-and-apply.ps1 (waits for idle).'
-        $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $restartAndApply)
+        Write-Log 'New build without mods, T3 running: restart-and-apply.ps1 (waits for idle, logs to restart-and-apply.log).'
+        $arguments = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', "`"$restartAndApply`"")
         $thread = Get-ReportThreadId
         if ($thread) { $arguments += @('-ReportThreadId', $thread) }
-        & powershell.exe @arguments 2>&1 | ForEach-Object { Write-Log "restart-and-apply: $_" }
+        # A separate process rather than a pipeline: an error in a pipeline
+        # makes PowerShell kill the program in it, which once stopped this run
+        # after it had closed T3 and before it started T3 again.
+        $run = Start-Process -FilePath powershell.exe -ArgumentList $arguments -WindowStyle Hidden -PassThru
+        $run.WaitForExit()
     }
 
     $after = Get-ModsState

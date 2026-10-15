@@ -433,8 +433,14 @@
     },
 
     threadKey: (environmentId, threadId) => `${environmentId}/${threadId}`,
+    // The route of a thread, for navigate().
     threadPath: (environmentId, threadId) =>
       `/${encodeURIComponent(environmentId)}/${encodeURIComponent(threadId)}`,
+    // A URL that loads the app on a route, for iframes and full loads. T3
+    // routes by hash in the desktop app (main.tsx picks hash history whenever
+    // desktopBridge exists, so panes that borrow it do too) and by path in
+    // browsers.
+    routeUrl: (path) => (window.desktopBridge !== undefined ? `/#${path}` : path),
 
     // The thread open in the chat view, from the header's props.
     currentThread() {
@@ -480,7 +486,7 @@
         router = T3Mods.reactProps(start, (p) => typeof p.router?.navigate === "function", 2000)?.router ?? null;
       }
       if (router) router.navigate({ to });
-      else location.assign(to);
+      else location.assign(T3Mods.routeUrl(to));
     },
 
     // A small menu or panel under anchor that closes on outside click, Escape,
@@ -599,54 +605,68 @@
     },
   };
 
+  // Matches T3's own controls: ghost buttons (no border, accent on hover,
+  // a slight press), its menu surface (dropdown-glass) and its inputs.
   T3Mods.css(
     "runtime",
     `
 .t3mods-embedded [data-slot="sidebar"],
 .t3mods-embedded [data-slot="sidebar-gap"],
-.t3mods-embedded [data-slot="sidebar-rail"] { display: none !important; }
+.t3mods-embedded [data-slot="sidebar-rail"],
+.t3mods-embedded button[aria-label="Toggle main sidebar"] { display: none !important; }
+/* With no sidebar there is no toggle to clear; give the header its normal inset. */
+.t3mods-embedded [data-slot="sidebar-wrapper"] { --workspace-titlebar-content-left: var(--workspace-gutter-start, 0.75rem) !important; }
 .t3mods-embedded * { -webkit-app-region: no-drag !important; }
-.t3mods-header-slot { display: inline-flex; align-items: center; gap: 0.375rem; margin-left: 0.5rem; min-width: 0; flex-shrink: 0; }
-.t3mods-header-button {
+.t3mods-header-slot { display: inline-flex; align-items: center; gap: 0.25rem; margin-left: 0.5rem; min-width: 0; flex-shrink: 0; }
+.t3mods-header-button, .t3mods-icon-button {
   display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
-  width: 1.5rem; height: 1.5rem; border-radius: calc(var(--radius) - 4px);
-  color: var(--muted-foreground); background: transparent; border: 0; cursor: pointer;
-  -webkit-app-region: no-drag;
+  width: 1.5rem; height: 1.5rem; padding: 0; border: 0; border-radius: var(--radius-md, 0.375rem);
+  color: var(--muted-foreground); background: transparent; cursor: pointer; -webkit-app-region: no-drag;
+  transition: scale 160ms cubic-bezier(0.23, 1, 0.32, 1);
 }
-.t3mods-header-button:hover, .t3mods-header-button[aria-pressed="true"] { color: var(--foreground); background: var(--accent); }
-.t3mods-header-button:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.t3mods-header-button:hover, .t3mods-header-button[aria-pressed="true"], .t3mods-header-button[aria-expanded="true"],
+.t3mods-icon-button:hover { color: var(--foreground); background: var(--accent); }
+.t3mods-header-button:active, .t3mods-icon-button:active, .t3mods-header-chip-button:active { scale: 0.97; }
+.t3mods-header-button:focus-visible, .t3mods-icon-button:focus-visible, .t3mods-header-chip-button:focus-visible {
+  outline: 2px solid var(--ring); outline-offset: -2px;
+}
+.t3mods-header-chip-button {
+  display: inline-flex; align-items: center; gap: 0.25rem; height: 1.5rem; padding: 0 0.25rem; margin: 0 -0.125rem;
+  border: 0; border-radius: var(--radius-md, 0.375rem); background: transparent; cursor: pointer; -webkit-app-region: no-drag;
+  transition: scale 160ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.t3mods-header-chip-button:hover { background: var(--accent); }
+/* T3's dropdown-glass, copied so it holds whatever order the stylesheets load in. */
 .t3mods-popover {
   position: fixed; z-index: 2147483000; min-width: 14rem; max-width: 20rem; max-height: 70vh; overflow: auto;
-  padding: 0.375rem; border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px);
-  background: var(--popover); color: var(--popover-foreground);
-  box-shadow: 0 10px 30px -10px rgb(0 0 0 / 0.35); font-size: 0.8125rem; -webkit-app-region: no-drag;
+  padding: 0.25rem; border-radius: var(--radius-lg, 0.5rem); color: var(--popover-foreground);
+  background: color-mix(in srgb, var(--popover) 18%, color-mix(in srgb, var(--popover) var(--glass-opacity, 80%), transparent));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 12px)) saturate(var(--glass-saturation, 1.14));
+  backdrop-filter: blur(var(--glass-blur, 12px)) saturate(var(--glass-saturation, 1.14));
+  border: 1px solid color-mix(in srgb, var(--contrast-foreground, var(--foreground)) 10%, transparent);
+  box-shadow: 0 16px 40px -18px rgb(0 0 0 / 55%); font-size: 0.875rem; -webkit-app-region: no-drag;
 }
-.t3mods-popover h3 { margin: 0.25rem 0.375rem 0.375rem; font-size: 0.6875rem; font-weight: 500; color: var(--muted-foreground); text-transform: uppercase; letter-spacing: 0.04em; }
+.dark .t3mods-popover { box-shadow: 0 18px 44px -18px rgb(0 0 0 / 80%); }
+.t3mods-popover h3 { margin: 0.375rem 0.5rem 0.25rem; font-size: 0.75rem; font-weight: 500; color: var(--muted-foreground); }
 .t3mods-menu-item {
-  display: flex; width: 100%; align-items: center; gap: 0.5rem; padding: 0.3125rem 0.375rem;
-  border: 0; border-radius: calc(var(--radius) - 4px); background: transparent; color: inherit;
+  display: flex; width: 100%; min-height: 1.75rem; align-items: center; gap: 0.5rem; padding: 0.25rem 0.5rem;
+  border: 0; border-radius: var(--radius-sm, 0.25rem); background: transparent; color: var(--foreground);
   font: inherit; text-align: left; cursor: pointer;
 }
 .t3mods-menu-item:hover, .t3mods-menu-item:focus-visible { background: var(--accent); outline: none; }
 .t3mods-menu { min-width: 13rem; }
-.t3mods-menu .t3mods-menu-item svg { color: var(--muted-foreground); flex-shrink: 0; }
+.t3mods-menu .t3mods-menu-item svg { width: 1rem; height: 1rem; color: var(--muted-foreground); flex-shrink: 0; }
 .t3mods-menu-label { flex: 1; min-width: 0; }
-.t3mods-menu-hint { font: inherit; font-size: 0.6875rem; color: var(--muted-foreground); }
-.t3mods-menu-separator { height: 1px; margin: 0.25rem 0.375rem; background: var(--border); }
-.t3mods-header-chip-button { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.125rem; margin: -0.125rem; border: 0; border-radius: 999px; background: transparent; cursor: pointer; -webkit-app-region: no-drag; }
-.t3mods-header-chip-button:hover { box-shadow: 0 0 0 1px var(--border); }
-.t3mods-header-chip-button:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.t3mods-menu-hint { font: inherit; font-size: 0.75rem; color: var(--muted-foreground); }
+.t3mods-menu-separator { height: 1px; margin: 0.25rem 0.5rem; background: var(--border); }
 .t3mods-input {
-  width: 100%; padding: 0.3125rem 0.5rem; border: 1px solid var(--input, var(--border));
-  border-radius: calc(var(--radius) - 4px); background: transparent; color: inherit; font: inherit;
+  width: 100%; height: 1.875rem; padding: 0 0.625rem; border: 1px solid var(--input, var(--border));
+  border-radius: var(--radius-lg, 0.5rem); background: var(--background); color: var(--foreground); font: inherit;
+  transition: box-shadow 150ms ease;
 }
-.t3mods-input:focus { outline: 2px solid var(--ring); outline-offset: -1px; }
-.t3mods-icon-button {
-  display: inline-flex; align-items: center; justify-content: center; width: 1.5rem; height: 1.5rem; flex-shrink: 0;
-  border: 0; border-radius: calc(var(--radius) - 4px); background: transparent; color: var(--muted-foreground); cursor: pointer;
-}
-.t3mods-icon-button:hover { background: var(--accent); color: var(--foreground); }
-.t3mods-muted { color: var(--muted-foreground); padding: 0.25rem 0.375rem; font-size: 0.75rem; }
+.t3mods-input::placeholder { color: var(--muted-foreground); }
+.t3mods-input:focus { outline: none; border-color: var(--ring); box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--ring) 24%, transparent); }
+.t3mods-muted { color: var(--muted-foreground); padding: 0.25rem 0.5rem; font-size: 0.75rem; }
 `,
   );
 

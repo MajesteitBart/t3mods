@@ -94,8 +94,7 @@ node apply.mjs --restore   remove the mods (other patches to the archive stay)
 
 ## Labels
 
-Threads get colored chips after their title in the sidebar and the chat header,
-and a colored bar on the left of the sidebar row in the first label's color.
+Threads get colored chips after their title in the sidebar and the chat header.
 Sidebar cards show the first label and a count of the rest; slim rows show dots.
 
 - Scheduled (or Webhook) is added to threads that a scheduled task runs in or
@@ -120,15 +119,18 @@ Open it with the house button in the sidebar footer or Ctrl+Alt+H. The window
 button next to a thread's title adds it to Home or opens it in a new window;
 "Add thread" in Home adds threads too.
 
-Each pane can be minimized to the dock at the bottom, maximized (double-click
-its title bar), opened in the main window, moved to its own window, or removed.
-Minimized panes show a dot while their thread is working or waiting for you.
+A pane's controls sit in its top bar, next to T3's own panel buttons: minimize
+to the dock at the bottom, remove, and a window menu to maximize, open the
+thread in the main window or move it to its own window. Double-clicking an
+empty spot in the top bar maximizes too. Minimized panes show a dot while their
+thread is working or waiting for you.
 
 In a browser, "Open in new window" opens a real popup window. The desktop app
 does not let its pages open windows, so there the thread opens in a floating
-window inside T3: drag it by its title bar and resize it from the bottom-right
-corner. A browser that blocks the popup gets a floating window too. Popups
-leave notifications and sounds to the main window, so keep that one open.
+window inside T3: drag it by an empty spot in its top bar and resize it from
+the bottom-right corner. A browser that blocks the popup gets a floating window
+too. Popups leave notifications and sounds to the main window, so keep that one
+open.
 
 Every pane and window runs its own copy of the app, so a handful is fine and a
 dozen is heavy. Home only loads panes while it is open.
@@ -189,7 +191,9 @@ alphabetical order, each in its own function scope, after `runtime.js`.
   environment over the app's own WebSocket and resolves with
   `[{ environmentId, value }]`.
 - `menu(anchor, items)`, `popover(anchor, build)`, `navigate(path)`,
-  `threadPath(environmentId, threadId)`, `css(name, text)`,
+  `threadPath(environmentId, threadId)`, `routeUrl(path)` (a loadable URL for
+  a route: hash-based in the desktop app, path-based in browsers),
+  `css(name, text)`,
   `h(tag, attrs, ...children)` and `icon(svgInner)` cover the rest.
 - `surface` is `"main"`, `"pane"` (Home or a floating window) or `"window"`
   (a browser popup); `embedded` is true for the last two.

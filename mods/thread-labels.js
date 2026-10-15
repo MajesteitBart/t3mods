@@ -1,5 +1,5 @@
 // Colored labels on threads: chips after the title in sidebar rows and the chat
-// header, and a colored bar on the row's left edge in the first label's color.
+// header. The chips carry the color; rows keep T3's own surface.
 //
 // Scheduled, Webhook and Subagent are applied automatically. Your own labels
 // are edited by clicking the chips in the chat header (or the tag button when
@@ -53,16 +53,21 @@ T3Mods.css(
 .t3mods-labels > .t3mods-label-more { flex-shrink: 0; min-width: 0; }
 .t3mods-label-more { color: var(--muted-foreground) !important; background: color-mix(in srgb, var(--muted-foreground) 14%, transparent) !important; }
 .t3mods-header-chip-button > .t3mods-label { flex-shrink: 0; }
-[data-t3mods-labelled] { box-shadow: inset 2px 0 0 oklch(0.66 var(--t3mods-c) var(--t3mods-h)); }
-.t3mods-label-row { display: flex; align-items: center; gap: 0.25rem; }
+.t3mods-label-row { display: flex; align-items: center; gap: 0.125rem; }
 .t3mods-label-row .t3mods-menu-item { flex: 1; min-width: 0; }
 .t3mods-label-row .t3mods-label-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.t3mods-auto-labels { flex-wrap: wrap; padding: 0.125rem 0.375rem 0.375rem; }
-.t3mods-check { display: inline-flex; width: 0.875rem; flex-shrink: 0; justify-content: center; }
-.t3mods-new-label { padding: 0.375rem 0.375rem 0; margin-top: 0.25rem; border-top: 1px solid var(--border); }
-.t3mods-swatches { display: flex; flex-wrap: wrap; gap: 0.25rem; padding: 0.375rem; }
-.t3mods-swatch { width: 1rem; height: 1rem; border-radius: 999px; border: 2px solid transparent; cursor: pointer; padding: 0; }
-.t3mods-swatch[aria-checked="true"] { border-color: var(--foreground); }
+.t3mods-auto-labels { flex-wrap: wrap; padding: 0 0.5rem 0.25rem; }
+.t3mods-check { display: inline-flex; width: 1rem; flex-shrink: 0; justify-content: center; color: var(--foreground); }
+.t3mods-new-label { padding: 0.25rem 0.25rem 0; }
+.t3mods-swatches { display: flex; flex-wrap: wrap; gap: 0.375rem; padding: 0.5rem; }
+/* The ring sits in a gap the color of the menu, so the selected swatch reads
+   as selected on any background without a hard outline. */
+.t3mods-swatch {
+  width: 1rem; height: 1rem; border: 0; border-radius: 999px; padding: 0; cursor: pointer;
+  transition: scale 160ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.t3mods-swatch:active { scale: 0.9; }
+.t3mods-swatch[aria-checked="true"] { box-shadow: 0 0 0 2px var(--popover), 0 0 0 3.5px var(--foreground); }
 `,
 );
 
@@ -163,14 +168,7 @@ T3Mods.onScan("thread-labels-sidebar", () => {
     item.t3modsLabelSig = sig;
     existing?.remove();
 
-    if (labels.length === 0) {
-      row.removeAttribute("data-t3mods-labelled");
-      continue;
-    }
-    const [h, c] = COLORS[labels[0].color] ?? COLORS.gray;
-    row.style.setProperty("--t3mods-h", String(h));
-    row.style.setProperty("--t3mods-c", String(c));
-    row.setAttribute("data-t3mods-labelled", "");
+    if (labels.length === 0) continue;
 
     // The title span carries the thread title as its only text in both row
     // variants; chips go right after it.
@@ -325,6 +323,7 @@ const openEditor = (anchor, current) => {
         },
       });
       panel.append(
+        T3Mods.h("div", { class: "t3mods-menu-separator", role: "separator" }),
         T3Mods.h("div", { class: "t3mods-new-label" }, input),
         swatchRow(
           newColor,

@@ -3,7 +3,7 @@
 // Home is a full-window view with live threads side by side. Each pane is the
 // real thread (composer included) in an iframe, so you can follow and answer
 // several threads at once. Panes minimize to a dock at the bottom, maximize
-// to fill Home, pop out to their own window, or open in the main window.
+// to fill Home, move to their own window, or open in the main window.
 //
 // Open Home from the house button in the sidebar footer or Ctrl+Alt+H
 // (Cmd+Alt+H on a Mac). The window button next to a thread's title opens it in
@@ -12,14 +12,36 @@
 //
 // In a browser, a new window is a real popup window. The desktop app does not
 // let its pages open windows, so there the thread opens in a floating window
-// inside T3 that you can drag by its title bar and resize from its corner.
+// inside T3 that you drag by an empty spot in its header and resize from its
+// corner.
+//
+// Panes and floating windows have no frame of their own: their controls sit in
+// the thread's header, which the pane's own copy of the mods renders (see the
+// pane branch below) and wires to the main window through T3Mods.home.frame.
 //
 // Every pane and window runs its own copy of the app. Home only loads panes
 // while it is open: closing Home unloads them, and minimized panes load on
 // restore.
+const HOME = '<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>';
+const GRID = '<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/>';
+const WINDOWS = '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M10 4v4"/><path d="M2 8h20"/><path d="M6 4v4"/>';
+const POP_OUT = '<path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"/><path d="m21 3-9 9"/><path d="M15 3h6v6"/>';
+const OPEN_IN_MAIN = '<path d="m10 17 5-5-5-5"/><path d="M15 12H3"/><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>';
+const MINUS = '<path d="M5 12h14"/>';
+const MAXIMIZE = '<path d="M15 3h6v6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/><path d="M9 21H3v-6"/>';
+const RESTORE = '<path d="m14 10 7-7"/><path d="M20 10h-6V4"/><path d="m3 21 7-7"/><path d="M4 14h6v6"/>';
+const CLOSE = '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>';
+const PLUS = '<path d="M5 12h14"/><path d="M12 5v14"/>';
+
 const isHomeShortcut = (event) => {
   const mod = navigator.platform.startsWith("Mac") ? event.metaKey : event.ctrlKey;
   return mod && event.altKey && !event.shiftKey && event.code === "KeyH";
+};
+
+const iconButton = (label, icon, onClick) => {
+  const button = T3Mods.h("button", { type: "button", class: "t3mods-icon-button", title: label, "aria-label": label, onclick: onClick });
+  button.append(T3Mods.icon(icon));
+  return button;
 };
 
 if (T3Mods.surface === "pane") {
@@ -34,91 +56,270 @@ if (T3Mods.surface === "pane") {
     },
     true,
   );
-} else if (T3Mods.surface === "main") {
-  const HOME = '<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>';
-  const GRID = '<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/>';
-  const WINDOWS = '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M10 4v4"/><path d="M2 8h20"/><path d="M6 4v4"/>';
-  const POP_OUT = '<path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"/><path d="m21 3-9 9"/><path d="M15 3h6v6"/>';
-  const OPEN_IN_MAIN = '<path d="m10 17 5-5-5-5"/><path d="M15 12H3"/><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>';
-  const MINUS = '<path d="M5 12h14"/>';
-  const MAXIMIZE = '<path d="M15 3h6v6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/><path d="M9 21H3v-6"/>';
-  const RESTORE = '<path d="m14 10 7-7"/><path d="M20 10h-6V4"/><path d="m3 21 7-7"/><path d="M4 14h6v6"/>';
-  const CLOSE = '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>';
-  const PLUS = '<path d="M5 12h14"/><path d="M12 5v14"/>';
 
+  const host = (() => {
+    try {
+      return window.frameElement?.closest("[data-key]") ?? null;
+    } catch {
+      return null;
+    }
+  })();
+
+  if (host) {
+    const kind = host.classList.contains("t3mods-float") ? "float" : "pane";
+    const key = host.dataset.key;
+    const act = (action, ...args) => window.parent.T3Mods?.home?.frame(kind, key, action, ...args);
+    const GRIP = '<circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/>';
+
+    T3Mods.css(
+      "launcher-pane",
+      `
+.t3mods-pane-controls { display: inline-flex; align-items: center; gap: 0.125rem; flex-shrink: 0; margin: 0 0.5rem 0 auto; }
+/* Behind a group T3 already pushes right (Settings' Restore defaults), sit
+   next to it instead of splitting the free space with it. */
+.ms-auto ~ .t3mods-pane-controls, .t3mods-pane-controls[data-placement="tabbar"] { margin-inline-start: 0; }
+.t3mods-pane-controls[data-placement="tabbar"] { margin-inline-end: 0; }
+/* Pages without a top bar get the same controls as a small floating
+   toolbar, on T3's menu surface. */
+.t3mods-pane-controls[data-placement="floating"] {
+  position: fixed; top: 0.5rem; right: 0.5rem; z-index: 2147483000; margin: 0; padding: 0.125rem;
+  border-radius: var(--radius-lg, 0.5rem); color: var(--popover-foreground);
+  background: color-mix(in srgb, var(--popover) 18%, color-mix(in srgb, var(--popover) var(--glass-opacity, 80%), transparent));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 12px)) saturate(var(--glass-saturation, 1.14));
+  backdrop-filter: blur(var(--glass-blur, 12px)) saturate(var(--glass-saturation, 1.14));
+  border: 1px solid color-mix(in srgb, var(--contrast-foreground, var(--foreground)) 10%, transparent);
+  box-shadow: 0 8px 24px -12px rgb(0 0 0 / 45%);
+}
+.t3mods-grip { display: inline-flex; align-items: center; justify-content: center; width: 1.25rem; height: 1.5rem; color: var(--muted-foreground); cursor: grab; touch-action: none; }
+${kind === "float" ? "main header, [data-right-panel-tabbar] { cursor: grab; }" : ""}
+.t3mods-grabbing, .t3mods-grabbing * { cursor: grabbing !important; }
+`,
+    );
+
+    // A spot in the header that is not a control or text field.
+    const isEmptySpot = (target) =>
+      !target.closest("button, a, input, textarea, select, [role='button'], [role='tab'], [contenteditable='true']");
+
+    // Floating windows move with the pointer. Screen coordinates stay stable
+    // while the frame itself moves under the pointer.
+    const startDrag = (handle, event) => {
+      event.preventDefault();
+      handle.setPointerCapture(event.pointerId);
+      document.documentElement.classList.add("t3mods-grabbing");
+      act("dragStart", event.screenX, event.screenY);
+      // One cleanup for every way a drag ends. A handle replaced mid-drag
+      // loses its capture at the document, so listen there.
+      const listening = new AbortController();
+      const end = (e) => {
+        if (e.pointerId !== event.pointerId || listening.signal.aborted) return;
+        listening.abort();
+        document.documentElement.classList.remove("t3mods-grabbing");
+        act("dragEnd");
+      };
+      const options = { signal: listening.signal };
+      handle.addEventListener("pointermove", (e) => act("dragMove", e.screenX, e.screenY), options);
+      for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) document.addEventListener(type, end, options);
+    };
+
+    const bound = new WeakSet();
+    const bindHeader = (header) => {
+      if (bound.has(header)) return;
+      bound.add(header);
+      if (kind === "pane") {
+        // A title bar maximizes on double-click, as on every desktop OS.
+        header.addEventListener("dblclick", (event) => {
+          if (isEmptySpot(event.target)) act("maximize");
+        });
+        return;
+      }
+      header.addEventListener("pointerdown", (event) => {
+        if (event.button === 0 && isEmptySpot(event.target)) startDrag(header, event);
+      });
+    };
+    if (kind === "float") {
+      // Clicking anywhere in a floating window brings it to the front.
+      document.addEventListener("pointerdown", () => act("raise"), true);
+    }
+
+    const menuButton = (items) => {
+      const button = iconButton("Window", WINDOWS, () => {
+        button.setAttribute("aria-expanded", "true");
+        T3Mods.menu(button, items(), { align: "end", onClose: () => button.setAttribute("aria-expanded", "false") });
+      });
+      button.setAttribute("aria-haspopup", "menu");
+      button.setAttribute("aria-expanded", "false");
+      return button;
+    };
+
+    // The thread on screen, which can differ from the one the frame opened
+    // with. null on pages that are not a thread.
+    const shown = () => {
+      const current = T3Mods.currentThread();
+      return current?.isServerThread
+        ? { environmentId: current.environmentId, threadId: current.threadId, title: current.title }
+        : null;
+    };
+
+    const buildControls = (isMax, placement) => {
+      const desktop = act("isDesktop") === true;
+      const group = T3Mods.h("span", { class: "t3mods-pane-controls", "data-t3-mod": "pane-controls", "data-placement": placement });
+      if (placement === "floating" && kind === "float") {
+        const grip = T3Mods.h("span", { class: "t3mods-grip", title: "Drag to move", "aria-hidden": "true" });
+        grip.append(T3Mods.icon(GRIP));
+        grip.addEventListener("pointerdown", (event) => {
+          if (event.button === 0) startDrag(grip, event);
+        });
+        group.append(grip);
+      }
+      if (kind === "pane") {
+        group.append(
+          menuButton(() => [
+            {
+              icon: isMax ? RESTORE : MAXIMIZE,
+              label: isMax ? "Restore" : "Maximize",
+              hint: "Double-click",
+              onSelect: () => {
+                act("maximize");
+                T3Mods.rescan();
+              },
+            },
+            "-",
+            { icon: OPEN_IN_MAIN, label: "Open in the main window", onSelect: () => act("openInMain", shown()) },
+            { icon: POP_OUT, label: desktop ? "Move to a floating window" : "Move to a new window", onSelect: () => act("popOut", shown()) },
+          ]),
+          iconButton("Minimize", MINUS, () => act("minimize")),
+          iconButton("Remove from Home", CLOSE, () => act("remove")),
+        );
+      } else {
+        group.append(
+          menuButton(() => [
+            { icon: OPEN_IN_MAIN, label: "Open in the main window", onSelect: () => act("openInMain", shown()) },
+            { icon: GRID, label: "Move to Home", onSelect: () => act("toHome", shown()) },
+          ]),
+          iconButton("Close", CLOSE, () => act("close")),
+        );
+      }
+      return group;
+    };
+
+    // The window controls sit just left of T3's own layout toggles, in the
+    // top bar that shows them: the window menu, then minimize and close in
+    // the order desktop OSes use. Maximize lives in the menu and on
+    // double-click, so a narrow pane keeps room for its title. While a right
+    // panel is open its tab bar is that top bar (a maximized or sheet panel
+    // hides the thread header); otherwise it is the thread header's title row,
+    // or the page's own top bar (Settings). A page without one gets them
+    // floating in the top-right corner.
+    T3Mods.onScan("launcher-pane-controls", () => {
+      const tabbar = document.querySelector("[data-right-panel-tabbar]");
+      const chat = document.querySelector('header[data-chat-header="true"]');
+      const header = chat ?? document.querySelector("main header");
+      let container = null;
+      let before = null;
+      if (tabbar) {
+        container = tabbar;
+        // Ahead of the toggles when the tab bar holds them, and of the spacers
+        // that keep its tabs clear of the window's own controls.
+        before =
+          [...tabbar.children].find(
+            (child) =>
+              child.matches("[aria-hidden='true'], [data-panel-layout-controls]") ||
+              child.querySelector("[data-panel-layout-controls]") !== null,
+          ) ?? null;
+      } else if (header) {
+        const own = [...header.children].filter((child) => child.dataset.t3Mod !== "pane-controls");
+        container =
+          chat?.querySelector('nav[aria-label="Thread breadcrumb"]')?.parentElement ?? (own.length === 1 ? own[0] : header);
+      }
+      for (const bar of [tabbar, header]) if (bar) bindHeader(bar);
+      const placement = tabbar ? "tabbar" : container ? "header" : "floating";
+      const isMax = kind === "pane" && act("isMaximized") === true;
+      const sig = `${isMax}|${placement}`;
+      const existing = document.querySelector('[data-t3-mod="pane-controls"]');
+      const target = container ?? document.body;
+      if (
+        existing?.t3modsSig === sig &&
+        existing.parentElement === target &&
+        (before === null || existing.nextElementSibling === before)
+      )
+        return;
+      existing?.remove();
+      const group = buildControls(isMax, placement);
+      group.t3modsSig = sig;
+      target.insertBefore(group, before);
+    });
+  }
+} else if (T3Mods.surface === "main") {
   const store = T3Mods.store("home", { panes: [] }); // pane: { key, environmentId, threadId, title, minimized }
   let overlay = null; // { root, grid, dock, empty, sections: Map<key, section> }
   let maximized = null; // pane key, while Home is open
 
+  // Home sits on T3's sidebar color with each thread as a rounded surface,
+  // the way T3 frames its own main view: tone and shape, no outlines.
   T3Mods.css(
     "launcher",
     `
 .t3mods-home {
   position: fixed; inset: 0; z-index: 2147482000; display: flex; flex-direction: column;
-  background: var(--background); color: var(--foreground);
+  background: var(--sidebar, var(--background)); color: var(--foreground);
 }
 .t3mods-home [hidden] { display: none !important; }
 .t3mods-home-bar {
-  display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0;
+  display: flex; align-items: center; gap: 0.25rem; flex-shrink: 0;
   height: var(--workspace-topbar-height, 52px);
-  padding: 0 calc(var(--workspace-native-controls-inset, 0px) + 0.75rem) 0 1rem;
-  border-bottom: 1px solid var(--border); -webkit-app-region: drag;
+  padding: 0 calc(var(--workspace-native-controls-inset, 0px) + 0.75rem) 0 1rem; -webkit-app-region: drag;
 }
 .t3mods-home-bar button { -webkit-app-region: no-drag; }
-.t3mods-home-title { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; font-weight: 500; }
+.t3mods-home-title { display: inline-flex; align-items: center; gap: 0.5rem; margin-right: 0.5rem; font-size: 0.875rem; font-weight: 500; }
+.t3mods-home-title svg { color: var(--muted-foreground); }
 .t3mods-home-spacer { flex: 1; }
 .t3mods-text-button {
-  display: inline-flex; align-items: center; gap: 0.375rem; height: 1.75rem; padding: 0 0.625rem;
-  border: 1px solid var(--border); border-radius: calc(var(--radius) - 4px); background: transparent;
+  display: inline-flex; align-items: center; gap: 0.375rem; height: 1.75rem; padding: 0 0.5rem;
+  border: 0; border-radius: var(--radius-md, 0.375rem); background: transparent;
   color: var(--foreground); font: inherit; font-size: 0.8125rem; cursor: pointer;
+  transition: scale 160ms cubic-bezier(0.23, 1, 0.32, 1);
 }
+.t3mods-text-button svg { width: 1rem; height: 1rem; color: var(--muted-foreground); }
 .t3mods-text-button:hover { background: var(--accent); }
+.t3mods-text-button:active { scale: 0.97; }
+.t3mods-text-button:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .t3mods-home-grid {
-  flex: 1; min-height: 0; display: grid; gap: 0.5rem; padding: 0.5rem;
+  flex: 1; min-height: 0; display: grid; gap: 0.5rem; padding: 0 0.5rem 0.5rem;
   grid-template-columns: repeat(var(--cols, 1), minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr);
 }
-.t3mods-pane, .t3mods-float {
-  display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden;
-  border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px); background: var(--background);
+.t3mods-pane, .t3mods-dock-item {
+  border-radius: var(--radius-xl, 0.75rem); background: var(--background);
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.05), 0 1px 2px -1px rgb(0 0 0 / 0.05);
 }
-.t3mods-pane-bar {
-  display: flex; align-items: center; gap: 0.375rem; flex-shrink: 0; height: 2rem; padding: 0 0.25rem 0 0.625rem;
-  border-bottom: 1px solid var(--border); font-size: 0.8125rem; user-select: none;
-}
-.t3mods-pane-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
-.t3mods-pane-bar .t3mods-labels { margin-left: 0; max-width: 40%; }
-.t3mods-pane-controls { display: inline-flex; align-items: center; flex-shrink: 0; }
-.t3mods-pane-controls + .t3mods-pane-controls { margin-left: 0.375rem; padding-left: 0.375rem; border-left: 1px solid var(--border); }
+.t3mods-pane { display: flex; min-width: 0; min-height: 0; overflow: hidden; }
 .t3mods-pane-frame { flex: 1; min-height: 0; width: 100%; border: 0; background: var(--background); }
-.t3mods-home-dock {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem; flex-shrink: 0;
-  padding: 0.375rem 0.5rem; border-top: 1px solid var(--border);
-}
+.t3mods-home-dock { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; flex-shrink: 0; padding: 0 0.5rem 0.5rem; }
 .t3mods-dock-item {
-  display: inline-flex; align-items: center; gap: 0.25rem; max-width: 16rem; height: 1.75rem; padding: 0 0.25rem 0 0.625rem;
-  border: 1px solid var(--border); border-radius: calc(var(--radius) - 4px); background: var(--card, var(--background));
-  font-size: 0.8125rem;
+  display: inline-flex; align-items: center; gap: 0.125rem; max-width: 16rem; height: 2rem; padding: 0 0.25rem 0 0.75rem;
+  border-radius: var(--radius-lg, 0.5rem); font-size: 0.8125rem;
 }
 .t3mods-dock-item > button:first-child {
-  display: inline-flex; align-items: center; gap: 0.375rem; flex: 1; min-width: 0;
+  display: inline-flex; align-items: center; gap: 0.5rem; flex: 1; min-width: 0; height: 100%; padding: 0;
   border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; text-align: left;
 }
 .t3mods-dock-item > button:first-child > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.t3mods-dock-item:has(> button:first-child:hover) { background: color-mix(in srgb, var(--accent) 60%, var(--background)); }
 .t3mods-status { flex-shrink: 0; width: 0.5rem; height: 0.5rem; border-radius: 999px; }
 .t3mods-status[data-status="working"] { background: oklch(0.68 0.13 230); }
 .t3mods-status[data-status="input"] { background: oklch(0.75 0.15 75); }
 .t3mods-home-empty { flex: 1; display: flex; align-items: center; justify-content: center; padding: 2rem; text-align: center; color: var(--muted-foreground); font-size: 0.875rem; }
-.t3mods-picker-list { max-height: 50vh; overflow: auto; margin-top: 0.375rem; }
+.t3mods-picker-list { max-height: 50vh; overflow: auto; margin-top: 0.25rem; }
 .t3mods-picker-list .t3mods-menu-item span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .t3mods-picker-list .t3mods-picker-project { flex-shrink: 0; max-width: 40%; margin-left: auto; color: var(--muted-foreground); font-size: 0.75rem; }
+/* A floating window is genuinely above the page, so it gets T3's menu
+   elevation: the same hairline edge and soft drop shadow. */
 .t3mods-float {
-  position: fixed; z-index: 2147481000; width: 560px; height: 680px; min-width: 320px; min-height: 240px;
-  max-width: calc(100vw - 16px); max-height: calc(100vh - 16px);
-  resize: both; box-shadow: 0 18px 50px -12px rgb(0 0 0 / 0.45);
+  position: fixed; z-index: 2147481000; display: flex; width: 560px; height: 680px; min-width: 320px; min-height: 240px;
+  max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow: hidden; resize: both;
+  border-radius: var(--radius-xl, 0.75rem); background: var(--background);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--contrast-foreground, var(--foreground)) 10%, transparent), 0 24px 56px -20px rgb(0 0 0 / 0.5);
 }
-.t3mods-float .t3mods-pane-bar { cursor: grab; background: var(--card, var(--background)); }
-.t3mods-dragging .t3mods-float .t3mods-pane-bar { cursor: grabbing; }
-.t3mods-dragging iframe { pointer-events: none; }
+.dark .t3mods-float { box-shadow: 0 0 0 1px color-mix(in srgb, var(--contrast-foreground, var(--foreground)) 12%, transparent), 0 24px 56px -16px rgb(0 0 0 / 0.8); }
 .t3mods-sidebar-home svg { flex-shrink: 0; }
 `,
   );
@@ -134,12 +335,6 @@ if (T3Mods.surface === "pane") {
     store.update((state) => ({ ...state, panes: [...state.panes, { key, environmentId, threadId, title, minimized: false }] }));
   };
   const removePane = (key) => store.update((state) => ({ ...state, panes: state.panes.filter((p) => p.key !== key) }));
-
-  const iconButton = (label, icon, onClick) => {
-    const button = T3Mods.h("button", { type: "button", class: "t3mods-icon-button", title: label, "aria-label": label, onclick: onClick });
-    button.append(T3Mods.icon(icon));
-    return button;
-  };
 
   const threadLike = (pane) => {
     const known = T3Mods.knownThread(pane.key);
@@ -163,12 +358,12 @@ if (T3Mods.surface === "pane") {
       class: "t3mods-pane-frame",
       title: pane.title,
       allow: "clipboard-read; clipboard-write; microphone",
-      src: T3Mods.threadPath(pane.environmentId, pane.threadId),
+      src: T3Mods.routeUrl(T3Mods.threadPath(pane.environmentId, pane.threadId)),
     });
 
-  const openInMain = (pane) => {
+  const openInMain = (path) => {
     closeHome();
-    T3Mods.navigate(T3Mods.threadPath(pane.environmentId, pane.threadId));
+    T3Mods.navigate(path);
   };
 
   // --- New windows
@@ -176,36 +371,27 @@ if (T3Mods.surface === "pane") {
   const isDesktop = () => window.desktopBridge !== undefined;
   const popupWindows = new Map(); // key -> Window
   const floats = new Map(); // key -> section
-  let floatZ = 2147481000;
+  // Floating windows stack in their own band, below Home and the mods' menus.
+  const FLOAT_BASE = 2147481000;
+  const FLOAT_CEILING = FLOAT_BASE + 500;
+  let floatZ = FLOAT_BASE;
+  let drag = null; // { el, x, y, left, top } while a floating window moves
 
   const raise = (el) => {
+    if (Number(el.style.zIndex) === floatZ) return;
+    if (floatZ >= FLOAT_CEILING) {
+      // Renumber from the bottom of the band, keeping the current order.
+      const ordered = [...floats.values()].sort((a, b) => Number(a.style.zIndex) - Number(b.style.zIndex));
+      floatZ = FLOAT_BASE;
+      for (const other of ordered) other.style.zIndex = String(++floatZ);
+    }
     el.style.zIndex = String(++floatZ);
   };
 
-  // Drag a floating window by its title bar, keeping the bar on screen.
-  const makeDraggable = (el, handle) => {
-    handle.addEventListener("pointerdown", (event) => {
-      raise(el);
-      if (event.button !== 0 || event.target.closest("button")) return;
-      event.preventDefault();
-      handle.setPointerCapture(event.pointerId);
-      const start = { x: event.clientX, y: event.clientY, left: el.offsetLeft, top: el.offsetTop };
-      document.documentElement.classList.add("t3mods-dragging");
-      const move = (e) => {
-        const left = Math.min(Math.max(start.left + e.clientX - start.x, 8 - el.offsetWidth + 80), window.innerWidth - 80);
-        const top = Math.min(Math.max(start.top + e.clientY - start.y, 0), window.innerHeight - 32);
-        el.style.left = `${left}px`;
-        el.style.top = `${top}px`;
-      };
-      const end = () => {
-        handle.removeEventListener("pointermove", move);
-        document.documentElement.classList.remove("t3mods-dragging");
-      };
-      handle.addEventListener("pointermove", move);
-      handle.addEventListener("pointerup", end, { once: true });
-      handle.addEventListener("pointercancel", end, { once: true });
-    });
-  };
+  // A pane descriptor for a thread shown in a frame, or the fallback.
+  const asPane = (thread, fallback) =>
+    thread ? { ...thread, key: T3Mods.threadKey(thread.environmentId, thread.threadId) } : fallback;
+  const pathOf = (pane) => T3Mods.threadPath(pane.environmentId, pane.threadId);
 
   const closeFloat = (key) => {
     floats.get(key)?.remove();
@@ -218,47 +404,24 @@ if (T3Mods.surface === "pane") {
     const existing = floats.get(pane.key);
     if (existing) return raise(existing);
     const offset = (floats.size % 6) * 28;
-    const el = T3Mods.h("section", {
-      class: "t3mods-float",
-      "data-t3-mod": "launcher-float",
-      "data-key": pane.key,
-      role: "dialog",
-      "aria-label": pane.title,
-      style: {
-        left: `${Math.max(8, window.innerWidth - 560 - 32 - offset)}px`,
-        top: `${64 + offset}px`,
-        height: `${Math.min(680, window.innerHeight - 96)}px`,
+    const el = T3Mods.h(
+      "section",
+      {
+        class: "t3mods-float",
+        "data-t3-mod": "launcher-float",
+        "data-key": pane.key,
+        role: "dialog",
+        "aria-label": pane.title,
+        style: {
+          left: `${Math.max(8, window.innerWidth - 560 - 32 - offset)}px`,
+          top: `${64 + offset}px`,
+          height: `${Math.min(680, window.innerHeight - 96)}px`,
+        },
       },
-    });
-    const bar = T3Mods.h("div", { class: "t3mods-pane-bar" });
-    el.append(bar, embedFrame(pane));
-    // Runs on every scan; rebuilding unchanged controls would itself trigger
-    // the next scan.
-    el.t3modsRender = () => {
-      const thread = threadLike(pane);
-      if (el.t3modsSig === thread.title) return;
-      el.t3modsSig = thread.title;
-      el.setAttribute("aria-label", thread.title);
-      bar.replaceChildren(
-        T3Mods.h("span", { class: "t3mods-pane-title", title: thread.title }, thread.title),
-        T3Mods.h(
-          "span",
-          { class: "t3mods-pane-controls" },
-          iconButton("Open in the main window", OPEN_IN_MAIN, () => {
-            closeFloat(pane.key);
-            T3Mods.navigate(T3Mods.threadPath(pane.environmentId, pane.threadId));
-          }),
-          iconButton("Move to Home", GRID, () => {
-            closeFloat(pane.key);
-            addPane(pane);
-          }),
-        ),
-        T3Mods.h("span", { class: "t3mods-pane-controls" }, iconButton("Close", CLOSE, () => closeFloat(pane.key))),
-      );
-    };
-    el.t3modsRender();
-    makeDraggable(el, bar);
-    // A click inside the thread focuses its iframe; bring that window forward.
+      embedFrame(pane),
+    );
+    el.t3modsPane = pane;
+    // Focus moving into the thread brings its window forward.
     el.querySelector("iframe").addEventListener("focus", () => raise(el));
     floats.set(pane.key, el);
     raise(el);
@@ -293,58 +456,77 @@ if (T3Mods.surface === "pane") {
   };
   const popOutLabel = () => (isDesktop() ? "Open in floating window" : "Open in new window");
 
-  // --- Home overlay
-
-  const renderBar = (section, pane) => {
-    const thread = threadLike(pane);
-    const labels = T3Mods.labels?.labelsFor(thread) ?? [];
-    const active = T3Mods.keepActive?.isMarked(pane.key) ?? false;
-    const isMax = maximized === pane.key;
-    const sig = `${thread.title}|${labels.map((l) => `${l.id}:${l.color}`).join(",")}|${active}|${isMax}|${isDesktop()}`;
-    if (section.t3modsSig === sig) return;
-    section.t3modsSig = sig;
-    const bar = section.querySelector(".t3mods-pane-bar");
-    // Navigation actions first, then the window controls in the order every
-    // desktop OS uses: minimize, maximize, close.
-    bar.replaceChildren(
-      ...(active ? [T3Mods.keepActive.chip(pane.key, true)] : []),
-      T3Mods.h("span", { class: "t3mods-pane-title", title: thread.title }, thread.title),
-      ...(labels.length > 0 ? [T3Mods.h("span", { class: "t3mods-labels" }, T3Mods.labels.chips(labels, 2))] : []),
-      T3Mods.h(
-        "span",
-        { class: "t3mods-pane-controls" },
-        iconButton("Open in the main window", OPEN_IN_MAIN, () => openInMain(pane)),
-        iconButton(isDesktop() ? "Move to a floating window" : "Move to a new window", POP_OUT, () => {
-          removePane(pane.key);
-          popOut(pane);
-        }),
-      ),
-      T3Mods.h(
-        "span",
-        { class: "t3mods-pane-controls" },
-        iconButton("Minimize", MINUS, () => updatePane(pane.key, { minimized: true })),
-        iconButton(isMax ? "Restore" : "Maximize", isMax ? RESTORE : MAXIMIZE, () => toggleMaximize(pane.key)),
-        iconButton("Remove from Home", CLOSE, () => removePane(pane.key)),
-      ),
-    );
-    section.querySelector("iframe").title = thread.title;
+  // What the controls in a pane's or floating window's header can ask for.
+  // key is the pane key from the host element's data-key. Moves act on the
+  // thread the frame shows now (args[0], from its currentThread()), which can
+  // differ from the one it opened with; key still names the container.
+  const frame = (kind, key, action, ...args) => {
+    if (kind === "pane") {
+      const pane = findPane(key);
+      if (!pane) return undefined;
+      switch (action) {
+        case "isMaximized":
+          return maximized === key;
+        case "isDesktop":
+          return isDesktop();
+        case "minimize":
+          return updatePane(key, { minimized: true });
+        case "maximize":
+          return toggleMaximize(key);
+        case "remove":
+          return removePane(key);
+        case "openInMain":
+          return openInMain(pathOf(asPane(args[0], pane)));
+        case "popOut":
+          removePane(key);
+          return popOut(asPane(args[0], pane));
+      }
+      return undefined;
+    }
+    const el = floats.get(key);
+    if (!el) return undefined;
+    const pane = el.t3modsPane;
+    switch (action) {
+      case "isDesktop":
+        return isDesktop();
+      case "raise":
+        return raise(el);
+      case "close":
+        return closeFloat(key);
+      case "openInMain":
+        closeFloat(key);
+        return T3Mods.navigate(pathOf(asPane(args[0], pane)));
+      case "toHome":
+        closeFloat(key);
+        return addPane(asPane(args[0], pane));
+      case "dragStart":
+        raise(el);
+        drag = { el, x: args[0], y: args[1], left: el.offsetLeft, top: el.offsetTop };
+        return undefined;
+      case "dragMove": {
+        if (drag?.el !== el) return undefined;
+        // Keep enough of the window on screen to grab it again.
+        const left = Math.min(Math.max(drag.left + args[0] - drag.x, 80 - el.offsetWidth), window.innerWidth - 80);
+        const top = Math.min(Math.max(drag.top + args[1] - drag.y, 0), window.innerHeight - 40);
+        el.style.left = `${left}px`;
+        el.style.top = `${top}px`;
+        return undefined;
+      }
+      case "dragEnd":
+        drag = null;
+        return undefined;
+    }
+    return undefined;
   };
+
+  // --- Home overlay
 
   const toggleMaximize = (key) => {
     maximized = maximized === key ? null : key;
     render();
   };
 
-  const createSection = (pane) => {
-    const bar = T3Mods.h("div", {
-      class: "t3mods-pane-bar",
-      title: "Double-click to maximize or restore",
-      ondblclick: (event) => {
-        if (!event.target.closest("button")) toggleMaximize(pane.key);
-      },
-    });
-    return T3Mods.h("section", { class: "t3mods-pane", "data-key": pane.key }, bar, embedFrame(pane));
-  };
+  const createSection = (pane) => T3Mods.h("section", { class: "t3mods-pane", "data-key": pane.key }, embedFrame(pane));
 
   const renderDock = () => {
     if (!overlay) return;
@@ -399,7 +581,6 @@ if (T3Mods.surface === "pane") {
       section.style.order = String(index);
       section.style.gridColumn = "";
       if (shown) shownSections.push(section);
-      renderBar(section, pane);
     });
 
     const visible = shownSections.length;
@@ -495,19 +676,11 @@ if (T3Mods.surface === "pane") {
     T3Mods.rescan();
   });
 
-  // Pane and window titles, labels, marks and dock states follow the sidebar.
-  T3Mods.onScan("launcher-panes", () => {
-    for (const el of floats.values()) el.t3modsRender?.();
-    if (!overlay) return;
-    for (const pane of panes()) {
-      const section = overlay.sections.get(pane.key);
-      if (section) renderBar(section, pane);
-    }
-    renderDock();
-  });
+  // Dock titles and states follow the sidebar.
+  T3Mods.onScan("launcher-dock", renderDock);
 
-  // Panes forward the shortcut here (see the pane branch above).
-  T3Mods.home = { toggle: toggleHome, popOut };
+  // Panes forward the shortcut and their header controls here.
+  T3Mods.home = { toggle: toggleHome, popOut, frame };
 
   // Ctrl+Alt+H, or Cmd+Alt+H on a Mac. Escape closes Home while focus is
   // outside the panes (Escape inside a pane belongs to that pane).

@@ -1,0 +1,10 @@
+# Logs
+*.log
+
+# Local watcher settings (holds a thread id)
+/config.json
+
+# Supertonic: install with npm, download the model (see README)
+tts-server/node_modules/
+tts-server/assets/onnx/
+tts-server/assets/voice_styles/

@@ -1,0 +1,8 @@
+{
+  "port": 47110,
+  "voice": "M1",
+  "speed": 1.05,
+  "steps": 8,
+  "threads": 4,
+  "idleMinutes": 15
+}

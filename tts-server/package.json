@@ -1,0 +1,8 @@
+{
+  "name": "t3-supertonic-tts",
+  "private": true,
+  "type": "module",
+  "description": "Local Supertonic 3 text-to-speech server for the T3 Code listen mod",
+  "scripts": { "start": "node server.mjs" },
+  "dependencies": { "onnxruntime-node": "^1.22.0" }
+}
